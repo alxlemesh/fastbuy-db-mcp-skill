@@ -1,0 +1,11 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "fastbuy-db",
+  "version": "1.0.0",
+  "description": "Database structure and ready-made queries for the BSC meme-token swap index served by the fastbuy-db MCP server",
+  "skills": ["./"],
+  "author": {
+    "name": "Alexey",
+    "email": "alxlemesh@gmail.com"
+  }
+}

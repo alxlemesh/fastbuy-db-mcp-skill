@@ -1,0 +1,15 @@
+{
+  "name": "fastbuy",
+  "metadata": {
+    "description": "Claude Code skill for the fastbuy BSC meme-token swap index"
+  },
+  "owner": {
+    "name": "Alexey"
+  },
+  "plugins": [
+    {
+      "name": "fastbuy-db",
+      "source": "./skills/fastbuy-db"
+    }
+  ]
+}
