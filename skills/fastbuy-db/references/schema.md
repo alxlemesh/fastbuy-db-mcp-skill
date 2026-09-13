@@ -1,8 +1,9 @@
 # Database structure
 
 The schema is created and versioned by the `fastbuy-db` indexer; this describes it as
-migrations `0001`–`0006` left it. The live answer always comes from `describe_table` — if
-it disagrees with this text, it is right.
+migrations `0001`–`0007` left it. The server serves its own copy of this file through
+`get_guide`, which is never older than the server; the live answer always comes from
+`describe_table` — if either disagrees with this text, it is right.
 
 ## General rules
 
@@ -67,12 +68,39 @@ The same `address`, `creator`, `name`, `symbol`, `decimals`, `total_supply`, `qu
 
 Indexes: `created_at DESC`, `creator`, `lower(symbol)`.
 
+### `openfour_tokens` — OpenFour tokens
+
+A protocol of its own, not a variant of Four.meme: the columns overlap by less than half,
+so the indexer gave it its own table. What differs from the two above:
+
+| Column                                                                    | Type            | What it is                                                                         |
+| ------------------------------------------------------------------------- | --------------- | ---------------------------------------------------------------------------------- |
+| `max_supply`                                                              | `NUMERIC(78,0)` | The supply — **there is no `total_supply` here**                                   |
+| `phase`                                                                   | `SMALLINT`      | The lifecycle, **instead of `status`**: see the enum below                         |
+| `quote`                                                                   | `BYTEA`         | `quoteAsset`, always a real ERC20 — never the zero address                         |
+| `preset_id`, `request_id`                                                 | `NUMERIC(78,0)` | Launch preset and request                                                          |
+| `sale_amount`, `raise_amount`, `initial_price`                            | `NUMERIC(78,0)` | How much is for sale, the raise target and the starting price                      |
+| `total_raised`, `remaining_for_sale`                                      | `NUMERIC(78,0)` | Last values seen in `TradeExecuted`                                                |
+| `vault`, `curve_module`, `trade_module`, `migrate_module`, `token_module` | `BYTEA`         | The modules of this launch: OpenFour is modular, so the addresses differ per token |
+| `custom_data`                                                             | `BYTEA`         | `NULL` when the event carried `address(0)`                                         |
+| `tag_token`, `tag_migrate`, `encoded_tags`                                | `BYTEA`         | Tag slots, 8 bytes each, and all 57 bytes of them together                         |
+| `anti_sniper`                                                             | `BOOLEAN`       | Bit 0 of `flags`                                                                   |
+| `meta_uri`                                                                | `TEXT`          | Metadata URI                                                                       |
+| `dex_pool`, `migrated_block`, `migrated_at`                               | —               | The PancakeSwap V2 pair after migration and when it happened                       |
+| `name`, `symbol`, `decimals`, `creator`, `created_*`, `indexed_at`        | —               | The same as everywhere else                                                        |
+
+`phase` is the contract's enum stored as a number, not a word of our own: 0 `Created`,
+1 `Trading`, 2 `MigratePending`, 3 `Migrated`, 4 `Terminal`, 5 `SoldOut`. The enum will be
+extended — a number you do not recognise is a new phase, not corrupt data.
+
+Indexes: `created_at DESC`, `creator`, `lower(symbol)`, `preset_id`.
+
 ## Swaps
 
-Four tables, all with the primary key `(block_number, log_index)` — the pair is unique
+Six tables, all with the primary key `(block_number, log_index)` — the pair is unique
 within the chain and is what makes a repeated sweep idempotent.
 
-### Columns shared by all four
+### Columns shared by all six
 
 | Column                             | Type            | What it is                                                               |
 | ---------------------------------- | --------------- | ------------------------------------------------------------------------ |
@@ -98,16 +126,20 @@ Each table is indexed on `(token, block_time DESC)`, `(maker, block_time DESC)`,
   and `funds` — the curve's state after the trade.
 - **`flap_curve_swaps`**: `fee`, `post_price` — the price after the trade, `portal_ts` —
   the time according to the Flap portal.
-- **`four_dex_swaps`** and **`flap_dex_swaps`**: `pool` — the pool address, `version`
-  (`v2`/`v3`), `fee_tier`, `amount0`/`amount1` — signed pool deltas (plus means the pool
-  received), `sqrt_price_x96`, `liquidity`, `tick` (V3 only), `sender` — who called the
-  swap (usually a router).
+- **`openfour_curve_swaps`**: `preset_id`, `requested_token_amount` — the curve fills
+  partially and that is normal, not an error, `curve_quote_amount`, `last_price`,
+  `slippage_limit`, `total_raised`, `remaining_for_sale`, and four fees kept apart:
+  `protocol_fee`, `tax_fee`, `dev_fee`, `anti_sniper_fee`.
+- **`four_dex_swaps`**, **`flap_dex_swaps`** and **`openfour_dex_swaps`**: `pool` — the pool
+  address, `version` (`v2`/`v3`), `fee_tier`, `amount0`/`amount1` — signed pool deltas (plus
+  means the pool received), `sqrt_price_x96`, `liquidity`, `tick` (V3 only), `sender` — who
+  called the swap (usually a router).
 
 ## Bookkeeping tables
 
 ### `dex_pools` — the pool registry
 
-`address` PK, `protocol` (`four`/`flap`), `token`, `quote`, `version`, `fee_tier`,
+`address` PK, `protocol` (`four`/`flap`/`openfour`), `token`, `quote`, `version`, `fee_tier`,
 `token_is_0` — whether the token is token0 in the pair (which decides the sign of
 `amount0`/`amount1`), `source` — how the pool was discovered (`liquidity_added`,
 `launched_to_dex`, `pair_created`, `pool_created`), `created_block`, `created_at`,
@@ -122,8 +154,9 @@ not data loss.
 
 ## The `<table>_hex` views
 
-`four_tokens_hex`, `flap_tokens_hex`, `dex_pools_hex`, `four_curve_swaps_hex`,
-`flap_curve_swaps_hex`, `four_dex_swaps_hex`, `flap_dex_swaps_hex` — the same columns with
+`four_tokens_hex`, `flap_tokens_hex`, `openfour_tokens_hex`, `dex_pools_hex`,
+`four_curve_swaps_hex`, `flap_curve_swaps_hex`, `openfour_curve_swaps_hex`,
+`four_dex_swaps_hex`, `flap_dex_swaps_hex`, `openfour_dex_swaps_hex` — the same columns with
 `BYTEA` shown as `0x` strings. They are the comfortable way to read; filtering is better
 done on the tables themselves through `addr()`, because a view hides the index behind a
 function.

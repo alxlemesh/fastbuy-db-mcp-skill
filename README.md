@@ -1,13 +1,18 @@
 # fastbuy-db skill
 
 A Claude Code skill for the **fastbuy** swap index: a PostgreSQL database of BSC meme-token
-trades from Four.meme and Flap — the bonding curve of each and the PancakeSwap pools they
-graduate into.
+trades from Four.meme, Flap and OpenFour — the bonding curve of each and the PancakeSwap
+pools they graduate into.
 
 The skill teaches Claude the shape of that database and how to query it without falling into
-its three traps: addresses stored as `BYTEA`, `uint256` amounts that must never become
-JavaScript numbers, and wallets that have to be matched against three columns at once.
-It ships the full schema reference and a set of ready-made queries.
+its four traps: addresses stored as `BYTEA`, `uint256` amounts that must never become
+JavaScript numbers, wallets that have to be matched against three columns at once, and
+OpenFour, which shares a prefix with Four.meme and nothing else. It ships the full schema
+reference and a set of ready-made queries.
+
+Those files are a snapshot, and the database keeps moving: the skill's first instruction is
+to call the server's `get_guide`, which serves the same reference as the server currently
+holds it, and to believe the server wherever the two disagree.
 
 **The skill is knowledge, not access.** The data lives behind an MCP server that is not part
 of this repository; the skill is only useful once Claude can reach that server. Setting that
@@ -121,10 +126,11 @@ a wrong or missing token gives `401` with a `WWW-Authenticate: Bearer` header.
 
 ## What the server exposes
 
-Ten read-only tools. The skill explains when to reach for which:
+Eleven read-only tools. The skill explains when to reach for which:
 
 | Tool               | What it does                                                      |
 | ------------------ | ----------------------------------------------------------------- |
+| `get_guide`        | The schema reference and recipes as the server holds them now     |
 | `get_swaps`        | Swaps by token, wallet, side, quote, pool, period or block range  |
 | `get_txs_by_maker` | Every swap of an address — `maker`, `tx_from` and `tx_to` at once |
 | `get_tokens`       | Token search and listings                                         |
@@ -145,7 +151,7 @@ rather than by string matching on the query.
 ```
 .claude-plugin/marketplace.json   makes this repository a Claude Code marketplace
 skills/fastbuy-db/
-  SKILL.md                        when to use the skill and the three traps
+  SKILL.md                        when to use the skill and the four traps
   references/schema.md            every table, column, type and index
   references/recipes.md           ready-made SQL for the common questions
 ```

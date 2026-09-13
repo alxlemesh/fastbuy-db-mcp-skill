@@ -3,6 +3,9 @@
 Tested starting points for `execute_sql`. Addresses go in as parameters: that is what
 lets an index be used, and it saves thinking about quoting.
 
+The server serves its own copy of this file through `get_guide` — ask for it when connected,
+because an installed skill is pinned to its version while the database keeps moving.
+
 Before writing SQL by hand, check whether a ready-made tool already covers it: `get_swaps`,
 `get_txs_by_maker`, `get_token`, `get_wallet` and `top_traders` handle almost everything
 below and deal with `BYTEA` and `decimals` for you.
@@ -40,9 +43,24 @@ SELECT 'flap_dex', hex(s.token), t.symbol, s.side, s.amount_token, s.amount_quot
   FROM flap_dex_swaps s JOIN flap_tokens t ON t.address = s.token, wallet w
  WHERE (s.maker = w.a OR s.tx_from = w.a OR s.tx_to = w.a)
    AND s.block_time >= now() - interval '24 hours'
+UNION ALL
+SELECT 'openfour_curve', hex(s.token), t.symbol, s.side, s.amount_token, s.amount_quote,
+       hex(s.quote), s.block_time, hex(s.tx_hash), hex(s.maker), hex(s.tx_from), hex(s.tx_to)
+  FROM openfour_curve_swaps s JOIN openfour_tokens t ON t.address = s.token, wallet w
+ WHERE (s.maker = w.a OR s.tx_from = w.a OR s.tx_to = w.a)
+   AND s.block_time >= now() - interval '24 hours'
+UNION ALL
+SELECT 'openfour_dex', hex(s.token), t.symbol, s.side, s.amount_token, s.amount_quote,
+       hex(s.quote), s.block_time, hex(s.tx_hash), hex(s.maker), hex(s.tx_from), hex(s.tx_to)
+  FROM openfour_dex_swaps s JOIN openfour_tokens t ON t.address = s.token, wallet w
+ WHERE (s.maker = w.a OR s.tx_from = w.a OR s.tx_to = w.a)
+   AND s.block_time >= now() - interval '24 hours'
  ORDER BY block_time DESC
  LIMIT 100;
 ```
+
+Each swap table joins the token table of **its own** protocol: an OpenFour swap has no row
+in `four_tokens`, and the join would simply drop it.
 
 ## Trading through one's own contract
 
@@ -74,14 +92,21 @@ SELECT hex(quote) AS quote, side, COUNT(*) AS trades,
 ## Launches of the last 24 hours
 
 ```sql
-SELECT 'four' AS protocol, hex(address) AS address, symbol, name, status, created_at
+SELECT 'four' AS protocol, hex(address) AS address, symbol, name,
+       status, NULL::smallint AS phase, created_at
   FROM four_tokens WHERE created_at >= now() - interval '24 hours'
 UNION ALL
-SELECT 'flap', hex(address), symbol, name, status, created_at
+SELECT 'flap', hex(address), symbol, name, status, NULL::smallint, created_at
   FROM flap_tokens WHERE created_at >= now() - interval '24 hours'
+UNION ALL
+SELECT 'openfour', hex(address), symbol, name, NULL::text, phase, created_at
+  FROM openfour_tokens WHERE created_at >= now() - interval '24 hours'
  ORDER BY created_at DESC
  LIMIT 50;
 ```
+
+OpenFour has no `status` column and the other two have no `phase`: in a `UNION` each side
+fills the other's column with a typed `NULL`, which is also what `get_tokens` returns.
 
 ## Tokens that made it to a DEX
 
@@ -136,6 +161,21 @@ SELECT DISTINCT ON (s.token)
  ORDER BY s.token, s.block_time ASC, s.log_index ASC
  LIMIT 50;
 ```
+
+## OpenFour tokens by phase
+
+```sql
+SELECT phase, COUNT(*) AS tokens,
+       COUNT(*) FILTER (WHERE dex_pool IS NOT NULL) AS migrated
+  FROM openfour_tokens
+ GROUP BY phase
+ ORDER BY phase;
+```
+
+0 `Created`, 1 `Trading`, 2 `MigratePending`, 3 `Migrated`, 4 `Terminal`, 5 `SoldOut` — the
+contract's enum, and it gets extended. A number with no name yet is a new phase, not a bug.
+The pair address comes from the migration event, so `dex_pool` is the reliable sign that a
+token reached PancakeSwap.
 
 ## Indexer health
 

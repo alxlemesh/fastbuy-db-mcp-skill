@@ -1,21 +1,38 @@
 ---
 name: fastbuy-db
-description: Work with the BSC meme-token swap database (Four.meme and Flap) through the fastbuy-db MCP server. Use it when asked about tokens, swaps, wallets, volumes, pools or indexer state; when writing SQL against this database; or when the tables four_tokens, flap_tokens, four_curve_swaps, flap_curve_swaps, four_dex_swaps, flap_dex_swaps, dex_pools, indexer_state come up.
+description: Work with the BSC meme-token swap database (Four.meme, Flap and OpenFour) through the fastbuy-db MCP server. Use it when asked about tokens, swaps, wallets, volumes, pools or indexer state; when writing SQL against this database; or when the tables four_tokens, flap_tokens, openfour_tokens, four_curve_swaps, flap_curve_swaps, openfour_curve_swaps, four_dex_swaps, flap_dex_swaps, openfour_dex_swaps, dex_pools, indexer_state come up.
 ---
 
 # The fastbuy swap database
 
-An index of BSC meme-token swaps. Four swap streams, each in its own table:
+An index of BSC meme-token swaps. Six swap streams, each in its own table:
 
-|                | Four.meme          | Flap               |
-| -------------- | ------------------ | ------------------ |
-| bonding curve  | `four_curve_swaps` | `flap_curve_swaps` |
-| DEX afterwards | `four_dex_swaps`   | `flap_dex_swaps`   |
+|                | Four.meme          | Flap               | OpenFour               |
+| -------------- | ------------------ | ------------------ | ---------------------- |
+| bonding curve  | `four_curve_swaps` | `flap_curve_swaps` | `openfour_curve_swaps` |
+| DEX afterwards | `four_dex_swaps`   | `flap_dex_swaps`   | `openfour_dex_swaps`   |
 
-The indexer writes them; everyone else reads. Through this MCP server the access is
-read-only: any write is rejected by the database role itself.
+Tokens live in `four_tokens`, `flap_tokens` and `openfour_tokens`. The indexer writes them;
+everyone else reads. Through this MCP server the access is read-only: any write is rejected
+by the database role itself.
 
-## Three things people trip over
+## Ask the server before trusting this file
+
+This skill is a **copy**, pinned to the version in its `plugin.json`, and the database moves
+with the indexer: a migration lands over there and every word below can be a release behind
+without saying so. So start by fetching the current text from the server:
+
+- **`get_guide`** — the schema reference and the ready-made queries as the server holds them
+  right now. One call, and it is exactly the material in `references/` but never stale.
+- **`describe_table`** — the columns, types and indexes of one table from the live catalog;
+  righter than any prose, including the guide's.
+- The server's own instructions arrive on connect and say the same in three lines.
+
+Where the server and this file disagree, **the server is right**. What follows is the
+offline summary: enough to write a sane query before the first call, not the source of
+truth.
+
+## Four things people trip over
 
 **1. Addresses and hashes are `BYTEA`, not text.**
 
@@ -49,15 +66,25 @@ WHERE maker = addr($1) OR tx_from = addr($1) OR tx_to = addr($1)
 
 All three fields are indexed. The `get_txs_by_maker` tool does this for you.
 
+**4. OpenFour is a protocol of its own, not a flavour of Four.meme.**
+
+Its table shares the prefix and nothing else: the supply is `max_supply` (not
+`total_supply`), the lifecycle is a numeric `phase` from the contract's enum — 0 `Created`,
+1 `Trading`, 2 `MigratePending`, 3 `Migrated`, 4 `Terminal`, 5 `SoldOut`, and the enum gets
+extended — instead of a `status` word, and the quote is always a real ERC20, never the zero
+address. `get_tokens` takes `phase` for it and `status` for the other two; in SQL, joining
+an OpenFour swap to `four_tokens` finds nothing.
+
 ## The server's tools
 
 Start with a ready-made query and reach for `execute_sql` when it is not enough.
 
 | Tool               | When                                                              |
 | ------------------ | ----------------------------------------------------------------- |
+| `get_guide`        | First: the current schema reference and recipes from the server   |
 | `get_swaps`        | Swaps under any filter: token, wallet, side, quote, pool, period  |
 | `get_txs_by_maker` | Every swap of an address — `maker`, `tx_from` and `tx_to` at once |
-| `get_tokens`       | Find a token by symbol, name, address, creator or status          |
+| `get_tokens`       | Find a token by symbol, name, address, creator, status or phase   |
 | `get_token`        | Token card: fields, pools, trade counters, volumes per quote      |
 | `get_wallet`       | Wallet summary: trades, volumes, favourite tokens                 |
 | `top_traders`      | Who traded the most over a period                                 |
@@ -81,6 +108,9 @@ Start with a ready-made query and reach for `execute_sql` when it is not enough.
   `get_swaps`.
 
 ## Further reading
+
+Both files are mirrored by `get_guide`, which serves the server's copy of them — reach for
+the tool when the server is connected, and for these when it is not.
 
 - [references/schema.md](references/schema.md) — every table, column, type and index, what
   each field means and what its `NULL` means.
